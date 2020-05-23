@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "GitHubMonitorApp": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    }
+  }
+}
