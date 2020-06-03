@@ -1,9 +1,12 @@
 ﻿using Microsoft.AspNetCore.StaticFiles;
-using Microsoft.Azure.Storage;
-using Microsoft.Azure.Storage.Blob;
+using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Blob;
+using Microsoft.WindowsAzure.Storage.Table;
+//using Microsoft.Azure.Storage;
+//using Microsoft.Azure.Storage.Blob;
 using System;
 using System.IO;
-using System.Reflection.Metadata;
+using System.IO.Enumeration;
 using System.Threading.Tasks;
 
 namespace BlobStorageManager
@@ -12,7 +15,7 @@ namespace BlobStorageManager
     {
         static async Task Main(string[] args)
         {
-            while(true)
+            while (true)
             {
                 string operation = "1", fileName = "", blobName = "", msg = "";
 
@@ -31,7 +34,7 @@ namespace BlobStorageManager
                 }
                 else if (operation == "2")
                 {
-                    msg = FileHandler.DownloadFile(fileName, blobName);
+                    msg = await FileHandler.DownloadFile(fileName, blobName);
                 }
                 else
                 {
@@ -68,6 +71,8 @@ namespace BlobStorageManager
                 cloudBlockBlob.Properties.ContentType = GetMimeType(Path.GetFileName(filePath));
                 await cloudBlockBlob.UploadFromStreamAsync(stream);
 
+                await InsertData("Upload", fileName, stream.Length);
+
                 return "File uploaded successfully";
             }
             catch (Exception e)
@@ -76,7 +81,7 @@ namespace BlobStorageManager
             }
         }
 
-        public static string DownloadFile(string fileName, string containerName)
+        public async static Task<string> DownloadFile(string fileName, string containerName)
         {
             try
             {
@@ -87,8 +92,10 @@ namespace BlobStorageManager
                 CloudBlobContainer cloudBlobContainer = blobClient.GetContainerReference(containerName);
                 CloudBlockBlob blockBlob = cloudBlobContainer.GetBlockBlobReference(fileName);
 
-                blockBlob.DownloadToFile(@"C:\DevNDocs\_Download\" + fileName, FileMode.Create);
-                
+                await blockBlob.DownloadToFileAsync(@"C:\DevNDocs\_Download\" + fileName, FileMode.Create);
+
+                await InsertData("Download", fileName, blockBlob.Properties.Length);
+
                 return "File downloaded successfully";
             }
             catch (Exception e)
@@ -108,6 +115,7 @@ namespace BlobStorageManager
 
                 CloudBlobContainer cloudBlobContainer = blobClient.GetContainerReference(containerName);
                 CloudBlockBlob blob = cloudBlobContainer.GetBlockBlobReference(fileName);
+                await InsertData("Delete", fileName, blob.Properties.Length);
                 await blob.DeleteIfExistsAsync();
 
                 return "File removed from blob " + containerName;
@@ -116,6 +124,18 @@ namespace BlobStorageManager
             {
                 return e.Message;
             }
+        }
+
+        public async static Task InsertData(string action, string fileName, long length)
+        {
+            var blobStorageConnectionString = GetStorageConnectionString();
+
+            CloudStorageAccount cloudStorageAccount = CloudStorageAccount.Parse(blobStorageConnectionString);
+            CloudTableClient tableClient = cloudStorageAccount.CreateCloudTableClient();
+            CloudTable table = tableClient.GetTableReference("tImage");
+            await table.CreateIfNotExistsAsync();
+
+            await table.ExecuteAsync(TableOperation.InsertOrReplace(new ImageEntity(action, fileName, length)));
         }
 
         public static string GetMimeType(string fileName)
@@ -131,7 +151,21 @@ namespace BlobStorageManager
 
         public static string GetStorageConnectionString()
         {
-            return "DefaultEndpointsProtocol=https;AccountName=amolstorageaccount;AccountKey=4IY0jTiCkP++zCb2glRLumsgB1JlC8gEu5a+nVnhceMrFezai27xqFwg86LKGObok8yHfLwmzCGQmkuT034RnQ==;EndpointSuffix=core.windows.net";
+            return "DefaultEndpointsProtocol=https;AccountName=demostoragead;AccountKey=jXXRTeZxLqaAMYbTAxxtB2bxvEMTzJSP9Y+xUhrpwItjwmU+EnAfNLDMjQdMshZji8XIPrnWNC2ObL/gewD/sw==;EndpointSuffix=core.windows.net";
+        }
+    }
+
+    public class ImageEntity : TableEntity
+    {
+        public string Action => PartitionKey;
+        public string FileName => RowKey;
+        public long FileSize { get; set; }
+
+        public ImageEntity(string action, string fileName, long length)
+        {
+            PartitionKey = action;
+            RowKey = fileName;
+            FileSize = length;
         }
     }
 }
